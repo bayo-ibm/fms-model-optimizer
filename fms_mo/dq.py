@@ -80,7 +80,7 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
     if any(x != 32 for x in attn_bits):
         attn_implementation = "eager"
     else:
-        attn_implementation = None
+        attn_implementation = "eager" #None
     config_kwargs = {
         "cache_dir": model_args.cache_dir,
         "revision": model_args.model_revision,
@@ -123,6 +123,94 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
         low_cpu_mem_usage=bool(model_args.device_map),
     )
 
+    from fms_mo.quarot import fuse_layer_norms, rotate_model, get_layers, get_rope_function_name, add_qk_rotation_wrapper_after_function_call_in_forward
+    import fms_mo.quarot as rotation_utils 
+
+    import fast_hadamard_transform
+
+   
+       
+    torch.manual_seed(0)
+    model.eval() 
+    #model.to(torch.device("cuda:0"))
+
+
+    from fms_mo.quant_utils import add_actquant, find_qlayers
+    from fms_mo import hadamard_utils, gptq_utils, data_utils
+
+    rotate=0
+
+    if rotate:
+        fuse_layer_norms(model)
+        rotate_model(model)
+        add_actquant(model) #Add Activation Wrapper to the model
+        qlayers = find_qlayers(model)
+        fp32_had=True
+
+        for name in qlayers:
+            if 'down_proj' in name:
+                had_K, K = hadamard_utils.get_hadK(model.config.intermediate_size)
+                qlayers[name].online_full_had = True
+                qlayers[name].had_K = had_K
+                qlayers[name].K = K
+                qlayers[name].fp32_had = fp32_had
+            if 'o_proj' in name:
+                had_K, K = hadamard_utils.get_hadK(model.config.num_attention_heads)
+                qlayers[name].online_partial_had = True
+                qlayers[name].had_K = had_K
+                qlayers[name].K = K
+                qlayers[name].had_dim = model.config.hidden_size//model.config.num_attention_heads
+                qlayers[name].fp32_had = fp32_had
+
+    else:
+        pass
+        add_actquant(model) #Add Activation Wrapper to the model as the rest of the code assumes it is present
+    import fms_mo.utils2 as utils_gr
+
+
+    ar = {
+     "w_groupsize" : -1,
+      "w_bits": 16,
+      "int8_down_proj": 16,
+      "w_asym": True,
+      "w_clip": True,
+      "nsamples": 128,
+      "act_order": False,
+      "percdamp" : 0.01,
+        } 
+
+    
+    #quantizers = gptq_utils.rtn_fwrd(model, "cuda", ar)
+    gptq=1
+    if gptq:
+        trainloader = data_utils.get_loaders(
+        "wikitext2", nsamples=ar["nsamples"],
+        seed=0, model=model_args.model_name_or_path,
+        seqlen=2048, eval_mode=False
+            )
+        
+        quantizers = gptq_utils.gptq_fwrd(model, trainloader, "cuda", ar)
+        #iii
+        #save_dict["w_quantizers"] = quantizers
+    #save_dict = {}
+    #save_dict["w_quantizers"] = quantizers
+    
+    # rope_function_name = get_rope_function_name(model)
+    # layers = get_layers(model)
+    # k_quant_config = {'k_bits':16, "k_groupsize": -1, "k_sym": not(False), "k_clip_ratio": 1}
+    # for layer in layers:
+    #     add_qk_rotation_wrapper_after_function_call_in_forward(
+    #                 layer.self_attn, 
+    #                 rope_function_name, 
+    #                 config=model.config,
+    #                 **k_quant_config)
+        
+    #iiii
+    #print(model)
+    #model[0]
+    #print(model.model.layers[0].mlp.down_proj.module)
+    #print(model[0].mlp.down_proj.module)
+    #ii
     embedding_size = model.get_input_embeddings().weight.shape[0]
     if len(tokenizer) > embedding_size:
         model.resize_token_embeddings(len(tokenizer))
@@ -145,7 +233,7 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
     ]
     qcfg["large_model"] = any(
         name in model_args.model_name_or_path for name in known_large_models
-    ) or (gpu_mem_util_per > 0.7)
+    ) or (gpu_mem_util_per > 0.1)
     dev = "cpu" if qcfg["large_model"] else "cuda"
     if model_args.device_map is None:
         model.to(dev)
@@ -172,7 +260,7 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
 
     qcfg["seq_len"] = block_size
     qcfg["model"] = model_args.model_name_or_path
-    qcfg["smoothq"] = True
+    qcfg["smoothq"] = False
     qcfg["plotsvg"] = False
 
     calibration_dataset = load_from_disk(data_args.training_data_path)
@@ -185,28 +273,28 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
         batch_size=1,
     )
 
-    # For loading or creating smoothquant scale. Sometimes we may include scales in ckpt as well.
-    scale_file = Path(f"./act_scales/{qcfg['model'].replace('/', '-')}.pt")
-    if qcfg.get("act_scale_path", None):
-        # user provided a scale file (or a dir)
-        scale_file_or_dir = Path(qcfg["act_scale_path"])
-        if scale_file_or_dir.is_dir():
-            scale_file = scale_file_or_dir / f"{qcfg['model'].replace('/', '-')}.pt"
-        elif scale_file_or_dir.is_file():
-            scale_file = scale_file_or_dir
+    # # For loading or creating smoothquant scale. Sometimes we may include scales in ckpt as well.
+    # scale_file = Path(f"./act_scales/{qcfg['model'].replace('/', '-')}.pt")
+    # if qcfg.get("act_scale_path", None):
+    #     # user provided a scale file (or a dir)
+    #     scale_file_or_dir = Path(qcfg["act_scale_path"])
+    #     if scale_file_or_dir.is_dir():
+    #         scale_file = scale_file_or_dir / f"{qcfg['model'].replace('/', '-')}.pt"
+    #     elif scale_file_or_dir.is_file():
+    #         scale_file = scale_file_or_dir
 
-    if not scale_file.parent.exists():
-        scale_file.parent.mkdir(exist_ok=False)
+    # if not scale_file.parent.exists():
+    #     scale_file.parent.mkdir(exist_ok=False)
 
-    if scale_file.exists():
-        act_scales = torch.load(scale_file, map_location=getattr(model, "device", dev))
-    else:
-        logger.info("Generate activation scales")
-        if qcfg["large_model"]:
-            act_scales = get_act_scales_1gpu(model, dq_dataloader, qcfg)
-        else:
-            act_scales = get_act_scales(model, dq_dataloader, qcfg)
-        torch.save(act_scales, scale_file)
+    # if scale_file.exists():
+    #     act_scales = torch.load(scale_file, map_location=getattr(model, "device", dev))
+    # else:
+    #     logger.info("Generate activation scales")
+    #     if qcfg["large_model"]:
+    #         act_scales = get_act_scales_1gpu(model, dq_dataloader, qcfg)
+    #     else:
+    #         act_scales = get_act_scales(model, dq_dataloader, qcfg)
+    #     torch.save(act_scales, scale_file)
     qmodel_prep(
         model,
         dq_dataloader,
@@ -218,12 +306,15 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
     )
     logger.info(f"Quantized model {model}")
     logger.info("Starting to apply smooth scale")
-    dq_llm(model, act_scales, qcfg)
+    #dq_llm(model, act_scales, qcfg)
     logger.info("Finished applying smooth scale")
     logger.info("==" * 20)
     if qcfg["qmodel_calibration_new"] > 0:
         logger.info("Starting to calibrate activation clip_val")
         if qcfg["large_model"]:
+            #model.to("cuda"))
+            model.to("cpu")
+            #print(model.device,2)
             calibration_llm_1GPU(qcfg, model, dq_dataloader)
         else:
             model.to("cuda:0")
@@ -238,9 +329,9 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
                     model(**data_mb)
 
     logger.info(f"Saving quantized model and tokenizer to {opt_args.output_dir}")
-    model.save_pretrained(opt_args.output_dir, use_safetensors=True)
-    tokenizer.save_pretrained(opt_args.output_dir)
-
+    #model.save_pretrained(opt_args.output_dir, use_safetensors=True)
+    #tokenizer.save_pretrained(opt_args.output_dir)
+    print(ar)
     if fms_mo_args.eval_ppl:
         path_test = Path(data_args.test_data_path)
         arrow_files = list(path_test.glob("*.arrow"))
@@ -249,7 +340,8 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
             test_dataset = load_from_disk(data_args.test_data_path)
             test_dataset = test_dataset.with_format("torch")
         elif len(pt_files) > 0:
-            test_dataset = torch.load(pt_files[0])
+            test_dataset = torch.load(pt_files[0],weights_only=False)
+            
 
         logger.info(f"Model for evaluation: {model}")
         if qcfg["large_model"]:

@@ -45,8 +45,12 @@ def config_quantize_smooth_layers(qcfg):
     ):
         qcfg["qlayer_name_pattern"] = ["model.layers."]
         qcfg["scale_layers"] = ["k_proj", "v_proj", "gate_proj", "up_proj"]
+        #d=range(0,32)
+        dd= [ii for ii in range(0,32)]
+        #print(dd)
+        
         large_mag_layers = {
-            "2-7b": [1, 30],
+            "2-7B": [1, 30],
             "2-70b": [2, 8, 79],
             "3-8B": [1, 31],
             "3-70B": [3, 78, 79],
@@ -55,9 +59,14 @@ def config_quantize_smooth_layers(qcfg):
         for llama_family, layers in large_mag_layers.items():
             if llama_family in qcfg["model"]:
                 qcfg["qskip_layer_name"] += [
+                    #pass
                     f"model.layers.{i}.mlp.down_proj" for i in layers
+                    #f"model.layers.{i}.mlp.down_proj.module" for i in layers
                 ]
-            break
+            
+            #break
+        #print(qcfg["qskip_layer_name"])
+        #ii
 
     elif "mixtral" in qcfg["model"]:
         qcfg["qlayer_name_pattern"] = (

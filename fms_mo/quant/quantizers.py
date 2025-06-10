@@ -384,7 +384,7 @@ class SAWB(nn.Module):
         num_bits,
         dequantize=True,
         inplace=False,
-        align_zero=False,
+        align_zero=True,
         clipSTE=True,
         perCh=False,
         interp=False,
@@ -507,7 +507,7 @@ class SAWBPlusZeroPerChSTE(torch.autograd.Function):
         # assert num_bits in [4, 8], "only implemented for 4bit and 8bit"
         if inplace:
             ctx.mark_dirty(input_tensor)
-
+        #iiiz
         if istraining:
             # only recalc clipvals under training mode
             SAWBcode_mapping = {8: 803, 4: 403, 2: 103}
