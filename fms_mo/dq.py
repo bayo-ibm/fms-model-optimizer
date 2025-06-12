@@ -181,7 +181,7 @@ def run_dq(model_args, data_args, opt_args, fms_mo_args):
 
     
     #quantizers = gptq_utils.rtn_fwrd(model, "cuda", ar)
-    gptq=1
+    gptq=0
     if gptq:
         trainloader = data_utils.get_loaders(
         "wikitext2", nsamples=ar["nsamples"],
