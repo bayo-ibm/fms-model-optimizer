@@ -207,7 +207,10 @@ class GPTQArguments(TypeChecker):
     autotune_warmup_after_quantized: bool = False
     cache_examples_on_gpu: bool = True
     use_version2: bool = False
-    v2_mem_device: Optional[str] = field(default="cpu", metadata={"choices": ["auto", "cpu", "cuda"]})
+    v2_mem_device: Optional[str] = field(
+        default="cpu", metadata={"choices": ["auto", "cpu", "cuda"]}
+    )
+
 
 
 @dataclass
