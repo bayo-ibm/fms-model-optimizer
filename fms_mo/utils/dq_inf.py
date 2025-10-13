@@ -48,44 +48,44 @@ def check_quantization_setting(model: nn.Module) -> bool:
         return False
 
     logger.info("Validating config settings")
-    if "quant_method" in quant_config.keys():
-        if quant_config["quant_method"] == "compressed-tensors":
-            if quant_config["format"] != "float-quantized":
-                raise ValueError(
-                    "The input activation and weight quantization dtypes are not supported"
-                )
-
-            if (
-                quant_config["config_groups"]["group_0"]["input_activations"][
-                    "num_bits"
-                ]
-                != 8
-            ):
-                raise ValueError(
-                    "Only 8 bit FP input activation quantization is supported"
-                )
-
-            if quant_config["config_groups"]["group_0"]["weights"]["num_bits"] != 8:
-                raise ValueError("Only 8-bit FP weight quantization  is supported")
-
-            if quant_config["kv_cache_scheme"] is not None:
-                if quant_config["kv_cache_scheme"]["type"] is not float:
-                    raise ValueError("The KV-Cache quantization dtype is not supported")
-
-                if quant_config["kv_cache_scheme"]["num_bits"] != 8:
-                    raise ValueError(
-                        "Only 8-bit KV-Cache quantization dtype is supported"
-                    )
-
-            return True
+    if "quant_method" not in quant_config.keys():
         raise ValueError(
-            "The quantization method is not supported for inferencing."
-            "Only Fp8 quantization is supported"
-        )
-
-    raise ValueError(
         "The quantization method is not found. Please check the config file"
     )
+    if quant_config["quant_method"] != "compressed-tensors":
+        raise ValueError(
+        "The quantization method is not supported for inferencing."
+        "Only Fp8 quantization is supported"
+    ) 
+
+    if quant_config["format"] != "float-quantized":
+        raise ValueError(
+            "The input activation and weight quantization dtypes are not supported"
+        )
+
+    if (
+        quant_config["config_groups"]["group_0"]["input_activations"][
+            "num_bits"
+        ]
+        != 8
+    ):
+        raise ValueError(
+            "Only 8 bit FP input activation quantization is supported"
+        )
+
+    if quant_config["config_groups"]["group_0"]["weights"]["num_bits"] != 8:
+        raise ValueError("Only 8-bit FP weight quantization  is supported")
+
+    if quant_config["kv_cache_scheme"] is not None:
+        if quant_config["kv_cache_scheme"]["type"] is not float:
+            raise ValueError("The KV-Cache quantization dtype is not supported")
+
+        if quant_config["kv_cache_scheme"]["num_bits"] != 8:
+            raise ValueError(
+                "Only 8-bit KV-Cache quantization dtype is supported"
+            )
+
+    return True
 
 
 def load_inference_qconfig_file(
